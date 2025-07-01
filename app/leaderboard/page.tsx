@@ -25,29 +25,9 @@ export default function LeaderboardPage() {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [topPlayers, setTopPlayers] = useState<User[]>([]);
 
-  const users = useMemo(() => {
-    return JSON.parse(localStorage.getItem("users") || "{}")
-  }, []);
-
-  // Convert to array and calculate win rates
-  const userArray = useMemo(() => Object.values(users).map((user: any) => ({
-    ...user,
-    winRate: user.gamesPlayed > 0 ? (user.wins / user.gamesPlayed) * 100 : 0,
-  })), [users]);
-
-  // Sort by wins (primary) and win rate (secondary)
-  const sortedUsers = useMemo(() => {
-    return userArray.sort((a: User, b: User) => {
-      if (b.wins !== a.wins) {
-        return b.wins - a.wins;
-      }
-      return b.winRate - a.winRate;
-    });
-  }, [userArray]);
-
   useEffect(() => {
     // Check authentication
-    const userData = localStorage.getItem("user");
+    const userData = typeof window !== "undefined" ? localStorage.getItem("user") : null;
     if (!userData) {
       router.push("/auth");
       return;
@@ -55,8 +35,23 @@ export default function LeaderboardPage() {
     setCurrentUser(JSON.parse(userData));
 
     // Load leaderboard data
-    setTopPlayers(sortedUsers.slice(0, 10));
-  }, [router, sortedUsers]);
+    if (typeof window !== "undefined") {
+      const users = JSON.parse(localStorage.getItem("users") || "{}");
+      // Convert to array and calculate win rates
+      const userArray = Object.values(users).map((user: any) => ({
+        ...user,
+        winRate: user.gamesPlayed > 0 ? (user.wins / user.gamesPlayed) * 100 : 0,
+      }));
+      // Sort by wins (primary) and win rate (secondary)
+      const sortedUsers = userArray.sort((a: User, b: User) => {
+        if (b.wins !== a.wins) {
+          return b.wins - a.wins;
+        }
+        return b.winRate - a.winRate;
+      });
+      setTopPlayers(sortedUsers.slice(0, 10));
+    }
+  }, [router]);
 
   // Memoize currentUserRank
   const currentUserRank = useMemo(() =>

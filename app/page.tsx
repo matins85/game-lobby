@@ -221,7 +221,7 @@ export default function HomePage() {
                 </div>
                 <Progress
                   value={progressPercentage}
-                  className="w-full bg-primary"
+                  className="w-full"
                 />
                 <div className="flex items-center justify-between">
                   <span className="text-sm text-gray-600">
