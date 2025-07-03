@@ -17,6 +17,8 @@ import {
   PlayCircleOutlined,
 } from "@ant-design/icons";
 import { Gamepad2 } from "lucide-react";
+import { apiFetch } from "@/lib/api";
+import { useUserStore } from "@/hooks/useUserStore";
 
 const { Title, Text, Link } = Typography;
 
@@ -26,6 +28,7 @@ export default function AuthPage() {
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [form] = Form.useForm();
+  const setUser = useUserStore((s) => s.setUser);
 
   const handleSubmit = async (values: { username: string }) => {
     setError("");
@@ -33,54 +36,40 @@ export default function AuthPage() {
 
     const { username } = values;
 
-    // Simulate API call delay
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-
     try {
-      // Mock authentication logic
-      const users = JSON.parse(localStorage.getItem("users") || "{}");
-
       if (isLogin) {
-        // Login logic
-        if (!users[username]) {
-          setError("User not found. Please register first.");
-          setIsLoading(false);
-          return;
-        }
+        const data = await apiFetch<any>("login-token/", {
+          method: "POST",
+          data: { username },
+        });
+        // Extract token and user info
+        const { access_token, ...user } = data;
+        setUser(user, access_token);
+        router.push("/");
       } else {
-        // Register logic
-        if (users[username]) {
-          setError("Username already exists. Please choose another.");
-          setIsLoading(false);
-          return;
-        }
-
-        // Create new user
-        users[username] = {
-          username,
-          wins: 0,
-          gamesPlayed: 0,
-          createdAt: Date.now(),
-        };
-        localStorage.setItem("users", JSON.stringify(users));
+        await apiFetch<any>("create-user/", {
+          method: "POST",
+          data: { username },
+        });
+        // After signup, auto-login
+        const data = await apiFetch<any>("login-token/", {
+          method: "POST",
+          data: { username },
+        });
+        const { access_token, ...user } = data;
+        setUser(user, access_token);
+        router.push("/");
       }
-
-      // Mock JWT token
-      const mockToken = btoa(
-        JSON.stringify({
-          username,
-          exp: Date.now() + 24 * 60 * 60 * 1000, // 24 hours
-        })
-      );
-
-      // Store user data and token
-      localStorage.setItem("user", JSON.stringify(users[username]));
-      localStorage.setItem("authToken", mockToken);
-
-      // Redirect to home
-      router.push("/");
-    } catch (err) {
-      setError("An error occurred. Please try again.");
+    } catch (err: any) {
+      let message = err.message || "An error occurred. Please try again.";
+      if (err.response?.data?.non_field_errors) {
+        message = err.response.data.non_field_errors[0];
+      } else if (err.response?.data?.username) {
+        message = Array.isArray(err.response.data.username)
+          ? err.response.data.username[0]
+          : err.response.data.username;
+      }
+      setError(message);
     } finally {
       setIsLoading(false);
     }

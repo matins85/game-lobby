@@ -1,7 +1,6 @@
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
-import { useRouter } from "next/navigation";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -10,70 +9,50 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { ArrowLeft, Trophy, Medal, Award } from "lucide-react";
-
-interface User {
-  username: string;
-  wins: number;
-  gamesPlayed: number;
-  winRate: number;
-}
+import { useLeaderboardStore } from "@/hooks/useLeaderboardStore";
+import { useUserStatsStore } from "@/hooks/useUserStatsStore";
+import { ArrowLeft, Trophy } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { useEffect, useMemo, useState } from "react";
 
 export default function LeaderboardPage() {
   const router = useRouter();
-  const [currentUser, setCurrentUser] = useState<User | null>(null);
-  const [topPlayers, setTopPlayers] = useState<User[]>([]);
+  const { leaderboard, loading, error, fetchLeaderboard } =
+    useLeaderboardStore();
+  const [currentUser, setCurrentUser] = useState<any>(null);
+  const [userId, setUserId] = useState<number | null>(null);
+  const {
+    stats,
+    loading: statsLoading,
+    error: statsError,
+    fetchStats,
+  } = useUserStatsStore();
 
   useEffect(() => {
-    // Check authentication
-    const userData = typeof window !== "undefined" ? localStorage.getItem("user") : null;
-    if (!userData) {
+    if (typeof window !== "undefined") {
+      const user = JSON.parse(localStorage.getItem("user") || "null");
+      setCurrentUser(user);
+      setUserId(user?.user_id || user?.id || null);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (currentUser === null) return;
+    if (!currentUser) {
       router.push("/auth");
       return;
     }
-    setCurrentUser(JSON.parse(userData));
-
-    // Load leaderboard data
-    if (typeof window !== "undefined") {
-      const users = JSON.parse(localStorage.getItem("users") || "{}");
-      // Convert to array and calculate win rates
-      const userArray = Object.values(users).map((user: any) => ({
-        ...user,
-        winRate: user.gamesPlayed > 0 ? (user.wins / user.gamesPlayed) * 100 : 0,
-      }));
-      // Sort by wins (primary) and win rate (secondary)
-      const sortedUsers = userArray.sort((a: User, b: User) => {
-        if (b.wins !== a.wins) {
-          return b.wins - a.wins;
-        }
-        return b.winRate - a.winRate;
-      });
-      setTopPlayers(sortedUsers.slice(0, 10));
-    }
-  }, [router]);
+    fetchLeaderboard();
+    if (userId) fetchStats(userId);
+  }, [currentUser, userId, router]);
 
   // Memoize currentUserRank
-  const currentUserRank = useMemo(() =>
-    topPlayers.findIndex((player) => player.username === currentUser?.username) + 1,
-  [topPlayers, currentUser]);
-
-  const getRankIcon = (rank: number) => {
-    switch (rank) {
-      case 1:
-        return <Trophy className="h-5 w-5 text-yellow-500" />;
-      case 2:
-        return <Medal className="h-5 w-5 text-gray-400" />;
-      case 3:
-        return <Award className="h-5 w-5 text-amber-600" />;
-      default:
-        return (
-          <span className="w-5 h-5 flex items-center justify-center text-sm font-bold text-gray-500">
-            #{rank}
-          </span>
-        );
-    }
-  };
+  const currentUserRank = useMemo(
+    () =>
+      leaderboard.find((player) => player.username === currentUser?.username)
+        ?.rank ?? -1,
+    [leaderboard, currentUser]
+  );
 
   const getRankBadge = (rank: number) => {
     switch (rank) {
@@ -88,7 +67,7 @@ export default function LeaderboardPage() {
     }
   };
 
-  if (!currentUser) return null;
+  if (currentUser === null) return null;
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-purple-50 to-blue-50 p-4">
@@ -116,6 +95,24 @@ export default function LeaderboardPage() {
           <Trophy className="h-8 w-8 text-yellow-500 mx-auto sm:mx-0" />
         </div>
 
+        {/* Error State */}
+        {error && (
+          <div className="mb-4 p-4 bg-red-100 text-red-700 rounded">
+            {error}
+          </div>
+        )}
+        {statsError && (
+          <div className="mb-4 p-4 bg-red-100 text-red-700 rounded">
+            {statsError}
+          </div>
+        )}
+        {/* Loading State */}
+        {(loading || statsLoading) && (
+          <div className="mb-4 p-4 bg-blue-100 text-blue-700 rounded">
+            Loading leaderboard...
+          </div>
+        )}
+
         {/* Current User Stats */}
         <Card className="mb-8">
           <CardHeader>
@@ -135,13 +132,9 @@ export default function LeaderboardPage() {
                 <div>
                   <p className="font-semibold">{currentUser.username}</p>
                   <p className="text-sm text-gray-600">
-                    {currentUser.wins} wins • {currentUser.gamesPlayed} games •{" "}
-                    {currentUser.gamesPlayed > 0
-                      ? Math.round(
-                          (currentUser.wins / currentUser.gamesPlayed) * 100
-                        )
-                      : 0}
-                    % win rate
+                    {stats?.wins ?? 0} wins • {stats?.games_played ?? 0} games •{" "}
+                    {stats?.games_played ? Math.round(stats.win_rate) : 0}% win
+                    rate
                   </p>
                 </div>
               </div>
@@ -163,80 +156,71 @@ export default function LeaderboardPage() {
           </CardContent>
         </Card>
 
-        {/* Top 10 Players */}
-        <Card>
+        {/* Top 10 Players Card */}
+        <Card className="mb-8">
           <CardHeader>
             <CardTitle>Top 10 Players</CardTitle>
-            <CardDescription>Players with the most wins</CardDescription>
+            <CardDescription>
+              The best players based on wins, win rate, and streaks
+            </CardDescription>
           </CardHeader>
           <CardContent>
-            {topPlayers.length === 0 ? (
-              <div className="text-center py-8">
-                <Trophy className="h-12 w-12 text-gray-300 mx-auto mb-4" />
-                <p className="text-gray-600">
-                  No players yet. Be the first to play!
-                </p>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {topPlayers.map((player, index) => {
-                  const rank = index + 1;
-                  const isCurrentUser =
-                    player.username === currentUser.username;
-
-                  return (
-                    <div
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead>
+                  <tr>
+                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Rank
+                    </th>
+                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Player
+                    </th>
+                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Wins
+                    </th>
+                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Games
+                    </th>
+                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Win Rate
+                    </th>
+                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Best Streak
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {leaderboard.map((player) => (
+                    <tr
                       key={player.username}
-                      className={`flex flex-col md:flex-row md:items-center justify-between p-4 rounded-lg border gap-4 md:gap-0 ${
-                        isCurrentUser
-                          ? "bg-blue-50 border-blue-200"
-                          : "bg-white border-gray-200"
-                      }`}
+                      className={player.rank <= 3 ? "bg-yellow-50" : ""}
                     >
-                      <div className="flex flex-col md:flex-row items-center space-y-2 md:space-y-0 md:space-x-4 w-full md:w-auto">
-                        <div className="flex items-center justify-center w-8">
-                          {getRankIcon(rank)}
-                        </div>
-                        <div className="w-10 h-10 bg-gray-100 rounded-full flex items-center justify-center">
-                          <span className="font-bold text-gray-600">
+                      <td className="px-4 py-2 font-bold text-center">
+                        {getRankBadge(player.rank)}
+                      </td>
+                      <td className="px-4 py-2 flex items-center space-x-2">
+                        <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center">
+                          <span className="font-bold text-blue-600">
                             {player.username[0].toUpperCase()}
                           </span>
                         </div>
-                        <div className="text-center md:text-left">
-                          <p
-                            className={`font-semibold text-base md:text-lg ${
-                              isCurrentUser ? "text-blue-600" : "text-gray-900"
-                            }`}
-                          >
-                            {player.username}
-                            {isCurrentUser && (
-                              <span className="text-sm text-blue-500 ml-2">
-                                (You)
-                              </span>
-                            )}
-                          </p>
-                          <p className="text-xs sm:text-sm text-gray-600">
-                            {player.gamesPlayed} games played
-                          </p>
-                        </div>
-                      </div>
-                      <div className="flex flex-row md:flex-col items-center justify-between gap-4 md:gap-0 text-right w-full md:w-auto">
-                        <div>
-                          <p className="font-bold text-lg">{player.wins}</p>
-                          <p className="text-xs text-gray-500">wins</p>
-                        </div>
-                        <div>
-                          <p className="font-semibold text-sm">
-                            {Math.round(player.winRate)}%
-                          </p>
-                          <p className="text-xs text-gray-500">rate</p>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
+                        <span>{player.username}</span>
+                      </td>
+                      <td className="px-4 py-2 text-center">{player.wins}</td>
+                      <td className="px-4 py-2 text-center">
+                        {player.games_played}
+                      </td>
+                      <td className="px-4 py-2 text-center">
+                        {Math.round(player.win_rate)}%
+                      </td>
+                      <td className="px-4 py-2 text-center">
+                        {player.best_streak}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </CardContent>
         </Card>
 
@@ -245,7 +229,7 @@ export default function LeaderboardPage() {
           <Card>
             <CardContent className="p-4 text-center">
               <p className="text-2xl font-bold text-blue-600">
-                {topPlayers.length}
+                {leaderboard.length}
               </p>
               <p className="text-sm text-gray-600">Total Players</p>
             </CardContent>
@@ -253,8 +237,8 @@ export default function LeaderboardPage() {
           <Card>
             <CardContent className="p-4 text-center">
               <p className="text-2xl font-bold text-green-600">
-                {topPlayers.reduce(
-                  (sum, player) => sum + player.gamesPlayed,
+                {leaderboard.reduce(
+                  (sum, player) => sum + player.games_played,
                   0
                 )}
               </p>
@@ -264,12 +248,12 @@ export default function LeaderboardPage() {
           <Card>
             <CardContent className="p-4 text-center">
               <p className="text-2xl font-bold text-purple-600">
-                {topPlayers.length > 0
+                {leaderboard.length > 0
                   ? Math.round(
-                      topPlayers.reduce(
-                        (sum, player) => sum + player.winRate,
+                      leaderboard.reduce(
+                        (sum, player) => sum + player.win_rate,
                         0
-                      ) / topPlayers.length
+                      ) / leaderboard.length
                     )
                   : 0}
                 %
