@@ -16,20 +16,6 @@ import { useEffect, useMemo, useState } from "react";
 import { useUserStatsStore } from "@/hooks/useUserStatsStore";
 import { useGameSessionStore } from "@/hooks/useGameSessionStore";
 
-interface GameSession {
-  id: string;
-  isActive: boolean;
-  timeLeft: number;
-  players: string[];
-  winningNumber?: number;
-}
-
-interface User {
-  username: string;
-  wins: number;
-  gamesPlayed: number;
-}
-
 export default function HomePage() {
   const router = useRouter();
   const [currentUser, setCurrentUser] = useState<any>(null);
@@ -49,7 +35,6 @@ export default function HomePage() {
       connect(user.token || user.access || user.access_token);
     }
     return () => disconnect();
-    // eslint-disable-next-line
   }, [router]);
 
   // Check if user is joined in the current session
@@ -64,8 +49,7 @@ export default function HomePage() {
   const joinSession = () => {
     if (!session || !currentUser) return;
     if (isJoined) return;
-    // Send join request via WebSocket (or API if required by backend)
-    // If backend expects a join message, implement it here. Otherwise, just mark as joined and go to game.
+
     setIsJoined(true);
     router.push("/game");
   };

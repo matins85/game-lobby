@@ -28,12 +28,6 @@ import { getGameWebSocket } from "@/lib/ws";
 
 const { Title, Text } = Typography;
 
-interface User {
-  username: string;
-  wins: number;
-  gamesPlayed: number;
-}
-
 export default function GamePage() {
   const router = useRouter();
   const [selectedNumber, setSelectedNumber] = useState<number | null>(null);
@@ -107,7 +101,7 @@ export default function GamePage() {
             winners: msg.winners,
             participations: msg.participations,
           });
-          setSelectedNumber(null); // Only clear if user participated
+          setSelectedNumber(null);
           if (user) fetchStats(user.user_id || user.id);
         } else {
           setShowResult(false);
@@ -330,7 +324,6 @@ export default function GamePage() {
             />
           </Space>
 
-          {/* Last Session Results (now inside Game in Progress card, after progress bar) */}
           {lastSessionResult && (
             <>
               <div style={{ textAlign: 'center', marginTop: 18, marginBottom: 2 }}>
@@ -446,7 +439,6 @@ export default function GamePage() {
           </div>
         </Card>
 
-        {/* Session Result Modal (for late participation) */}
         <Modal
           open={resultModal.show}
           footer={null}
