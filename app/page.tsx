@@ -10,11 +10,12 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
-import { Clock, LogOut, Play, Trophy, Users } from "lucide-react";
+import { Clock, LogOut, Play, Trophy, Users, Loader2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { useUserStatsStore } from "@/hooks/useUserStatsStore";
 import { useGameSessionStore } from "@/hooks/useGameSessionStore";
+import { getGameWebSocket } from "@/lib/ws";
 
 export default function HomePage() {
   const router = useRouter();
@@ -22,6 +23,8 @@ export default function HomePage() {
   const { stats, loading: statsLoading, error: statsError, fetchStats } = useUserStatsStore();
   const { session, loading: sessionLoading, error: sessionError, connect, disconnect } = useGameSessionStore();
   const [isJoined, setIsJoined] = useState(false);
+  const [lastSessionResult, setLastSessionResult] = useState<any>(null);
+  const [joinLoading, setJoinLoading] = useState(false);
 
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -34,7 +37,21 @@ export default function HomePage() {
       fetchStats(user.user_id || user.id);
       connect(user.token || user.access || user.access_token);
     }
-    return () => disconnect();
+    // WebSocket message listener for last session result
+    const ws = getGameWebSocket();
+    ws.setOnMessage((msg) => {
+      if (msg.type === "session_ended") {
+        setLastSessionResult({
+          winningNumber: msg.winning_number,
+          winners: msg.winners,
+          totalParticipants: msg.participations?.length ?? 0,
+        });
+      }
+    });
+    return () => {
+      disconnect();
+      ws.setOnMessage(() => {});
+    };
   }, [router]);
 
   // Check if user is joined in the current session
@@ -50,7 +67,11 @@ export default function HomePage() {
     if (!session || !currentUser) return;
     if (isJoined) return;
 
+    setJoinLoading(true);
     setIsJoined(true);
+    // Trigger session info refresh for all clients
+    const ws = getGameWebSocket();
+    ws.send({ type: 'trigger_game_session_manager' });
     router.push("/game");
   };
 
@@ -130,6 +151,33 @@ export default function HomePage() {
                   value={progressPercentage}
                   className="w-full"
                 />
+                {/* Last Session Results (after progress bar) */}
+                {lastSessionResult && (
+                  <div className="my-4">
+                    <div className="text-center mb-1 font-semibold text-gray-700 text-sm tracking-wide">
+                      Last Session Results
+                    </div>
+                    <Card className="bg-blue-50 border-none shadow-none rounded-lg max-w-xs mx-auto p-2">
+                      <div className="flex items-center justify-center gap-6">
+                        <div className="flex flex-col items-center min-w-[70px]">
+                          <span className="text-lg">🎯</span>
+                          <span className="text-xs text-gray-500">Winning No.</span>
+                          <span className="font-bold text-base">{lastSessionResult.winningNumber}</span>
+                        </div>
+                        <div className="flex flex-col items-center min-w-[70px]">
+                          <span className="text-lg">👥</span>
+                          <span className="text-xs text-gray-500">Players</span>
+                          <span className="font-bold text-base">{lastSessionResult.totalParticipants}</span>
+                        </div>
+                        <div className="flex flex-col items-center min-w-[70px]">
+                          <span className="text-lg">🏆</span>
+                          <span className="text-xs text-gray-500">Winners</span>
+                          <span className="font-bold text-base">{lastSessionResult.winners ? lastSessionResult.winners.length : 0}</span>
+                        </div>
+                      </div>
+                    </Card>
+                  </div>
+                )}
                 <div className="flex items-center justify-between">
                   <span className="text-sm text-gray-600">
                     Players joined: {(session.players || []).length}
@@ -137,10 +185,14 @@ export default function HomePage() {
                   {!isJoined ? (
                     <Button
                       onClick={joinSession}
-                      disabled={session.time_remaining < 1}
+                      disabled={session.time_remaining < 1 || joinLoading}
                       variant="default"
                     >
-                      <Play className="h-4 w-4 mr-2" />
+                      {joinLoading ? (
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      ) : (
+                        <Play className="h-4 w-4 mr-2" />
+                      )}
                       Join Game
                     </Button>
                   ) : (
