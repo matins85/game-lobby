@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   Button,
@@ -40,6 +40,7 @@ export default function GamePage() {
   const [showResult, setShowResult] = useState(false);
   const [resultDelayActive, setResultDelayActive] = useState(false);
   const [currentUser, setCurrentUser] = useState<any>(null);
+  const currentUserRef = useRef<any>(null);
   const { session, loading, error, connect, disconnect } = useGameSessionStore();
   const { stats, fetchStats } = useUserStatsStore();
   const [resultModal, setResultModal] = useState<{
@@ -51,6 +52,11 @@ export default function GamePage() {
   }>({ show: false });
   const token = useUserStore((s) => s.token);
   const [resultData, setResultData] = useState<any>(null);
+  const [lastSessionResult, setLastSessionResult] = useState<any>(null);
+
+  useEffect(() => {
+    currentUserRef.current = currentUser;
+  }, [currentUser]);
 
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -60,8 +66,10 @@ export default function GamePage() {
         router.push("/auth");
         return;
       }
-      if (token) {
-        connect(token);
+      // Always get token from localStorage for WebSocket connection
+      const localToken = user?.token || user?.access || user?.access_token;
+      if (localToken) {
+        connect(localToken);
       }
     }
     return () => {
@@ -70,7 +78,7 @@ export default function GamePage() {
       const ws = getGameWebSocket();
       ws.setOnMessage(() => {});
     };
-  }, [router, token]);
+  }, [router]);
 
   // Listen for WebSocket responses
   useEffect(() => {
@@ -81,17 +89,30 @@ export default function GamePage() {
       } else if (msg.type === 'select_number_result') {
         setShowResult(true);
         setResultDelayActive(true);
-        setTimeout(() => {
-          setShowResult(false);
-          setResultDelayActive(false);
-        }, 5000);
       } else if (msg.type === "session_ended") {
-        setShowResult(true);
-        setResultData({
+        const user = currentUserRef.current;
+        const userParticipation = msg.participations?.find(
+          (p: any) => p.user__username === user?.username
+        );
+        // Store last session result for display
+        setLastSessionResult({
           winningNumber: msg.winning_number,
           winners: msg.winners,
-          participations: msg.participations,
+          totalParticipants: msg.participations?.length ?? 0,
         });
+        if (userParticipation && userParticipation.selected_number != null) {
+          setShowResult(true);
+          setResultData({
+            winningNumber: msg.winning_number,
+            winners: msg.winners,
+            participations: msg.participations,
+          });
+          setSelectedNumber(null); // Only clear if user participated
+          if (user) fetchStats(user.user_id || user.id);
+        } else {
+          setShowResult(false);
+          setResultData(null);
+        }
       }
     });
     return () => {
@@ -104,7 +125,6 @@ export default function GamePage() {
     return (session.participations ?? []).find((p) => p.username === currentUser.username) || null;
   }, [session, currentUser]);
 
-  // Show result modal when session ends and user made a selection
   useEffect(() => {
     if (
       session &&
@@ -115,20 +135,16 @@ export default function GamePage() {
       setResultDelayActive(true);
       setSelectedNumber(null);
       if (currentUser) fetchStats(currentUser.user_id || currentUser.id);
-      setTimeout(() => {
-        setShowResult(false);
-        setResultDelayActive(false);
-      }, 5000);
     }
   }, [session?.winning_number]);
 
   if (!currentUser) return null;
   if (loading) return <div style={{ padding: 40, textAlign: "center" }}>Connecting to game server...</div>;
   if (error) return <div style={{ padding: 40, textAlign: "center", color: "red" }}>{error}</div>;
-  if (!session) return <div style={{ padding: 40, textAlign: "center" }}>No active game session.</div>;
+  if (!session) return <div style={{ padding: 40, textAlign: "center" }}><span className="ant-spin ant-spin-spinning" style={{ fontSize: 32, color: '#1890ff' }}></span></div>;
 
   const timeLeft = session.time_remaining;
-  const progressPercentage = session.time_remaining ? ((session.time_remaining / 20) * 100) : 0;
+  const progressPercentage = session.time_remaining ? Math.round((session.time_remaining / 20) * 100) : 0;
   const numbers = Array.from({ length: 10 }, (_, i) => i + 1);
   const isSubmitted = !!myParticipation?.selected_number;
   const isSessionEnded = session.winning_number !== null;
@@ -199,6 +215,7 @@ export default function GamePage() {
               const userParticipation = resultData?.participations?.find(
                 (p: any) => p.user__username === currentUser?.username
               );
+              const totalParticipants = resultData?.participations?.length ?? 0;
               return (
                 <>
                   <Avatar
@@ -224,6 +241,8 @@ export default function GamePage() {
                     The winning number was <strong>{resultData?.winningNumber}</strong>
                     <br />
                     You picked <strong>{userParticipation?.selected_number ?? "—"}</strong>
+                    <br />
+                    Total participants: <strong>{totalParticipants}</strong>
                   </Text>
                 </>
               );
@@ -267,8 +286,8 @@ export default function GamePage() {
               </div>
             </div>
 
-            <Button type="primary" onClick={goHome} size="large" block>
-              Return to Lobby
+            <Button type="primary" onClick={() => setShowResult(false)} size="large" block>
+              Close
             </Button>
           </div>
         </Modal>
@@ -279,13 +298,16 @@ export default function GamePage() {
             <Space>
               <PlayCircleOutlined />
               <span>Game in Progress</span>
+              <Tag color="green" style={{ marginLeft: 8 }}>
+                Players Joined: {session.player_count ?? 0}
+              </Tag>
             </Space>
           }
-          style={{ marginBottom: "32px" }}
+          style={{ marginBottom: "12px" }}
         >
           <Text
             type="secondary"
-            style={{ display: "block", marginBottom: "16px" }}
+            style={{ display: "block", marginBottom: "10px" }}
           >
             Pick your lucky number from 1 to 10
           </Text>
@@ -304,8 +326,55 @@ export default function GamePage() {
               percent={progressPercentage}
               status={timeLeft > 10 ? "active" : "exception"}
               strokeColor={timeLeft > 10 ? "#1890ff" : "#ff4d4f"}
+              showInfo={false}
             />
           </Space>
+
+          {/* Last Session Results (now inside Game in Progress card, after progress bar) */}
+          {lastSessionResult && (
+            <>
+              <div style={{ textAlign: 'center', marginTop: 18, marginBottom: 2 }}>
+                <span style={{ fontWeight: 600, fontSize: 14, letterSpacing: 0.5, color: '#444' }}>
+                  Last Session Results
+                </span>
+              </div>
+              <Card
+                type="inner"
+                title={null}
+                bordered={false}
+                style={{
+                  marginTop: 4,
+                  marginBottom: 0,
+                  background: '#f6faff',
+                  boxShadow: 'none',
+                  borderRadius: 8,
+                  padding: 0,
+                  maxWidth: 320,
+                  marginLeft: 'auto',
+                  marginRight: 'auto',
+                }}
+                bodyStyle={{ padding: 5 }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, justifyContent: 'center' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', minWidth: 80 }}>
+                    <span style={{ fontSize: 18, color: '#1890ff' }}>🎯</span>
+                    <span style={{ fontSize: 13, color: '#888' }}>Winning No.</span>
+                    <span style={{ fontWeight: 600, fontSize: 15 }}>{lastSessionResult.winningNumber}</span>
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', minWidth: 80 }}>
+                    <span style={{ fontSize: 18, color: '#52c41a' }}>👥</span>
+                    <span style={{ fontSize: 13, color: '#888' }}>Players</span>
+                    <span style={{ fontWeight: 600, fontSize: 15 }}>{lastSessionResult.totalParticipants}</span>
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', minWidth: 80 }}>
+                    <span style={{ fontSize: 18, color: '#faad14' }}>🏆</span>
+                    <span style={{ fontSize: 13, color: '#888' }}>Winners</span>
+                    <span style={{ fontWeight: 600, fontSize: 15 }}>{lastSessionResult.winners ? lastSessionResult.winners.length : 0}</span>
+                  </div>
+                </div>
+              </Card>
+            </>
+          )}
         </Card>
 
         {/* Number Selection */}
